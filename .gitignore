@@ -22,3 +22,16 @@ logs
 .env
 .env.*
 !.env.example
+
+# Contract
+/DOA-Contract
+
+# Server
+/server
+
+# Misc
+CONTRACT_INTEGRATION_TODO.txt
+claude_changes.txt
+
+# Test ledger
+/test-ledger

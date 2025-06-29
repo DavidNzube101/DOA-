@@ -60,12 +60,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Connection, PublicKey } from '@gorbagana/web3.js'
+import { Connection, PublicKey } from '@solana/web3.js'
 import { useSound } from '~/composables/useSound'
+import { useEnvironment } from '~/composables/useEnvironment'
 
 // Props and emits
 const emit = defineEmits<{
-  connected: [publicKey: string, balance: number]
+  connected: [publicKey: string, balance: number, wallet: any]
 }>()
 
 // Sound system
@@ -107,9 +108,9 @@ const checkWalletAvailability = () => {
       case 'backpack':
         return typeof window !== 'undefined' && 'backpack' in window
       case 'solflare':
-        return typeof window !== 'undefined' && ('solflare' in window || ('solflare' in window && 'solana' in (window as any).solflare))
+        return typeof window !== 'undefined' && ('solflare' in window || ('solana' in window && 'solflare' in (window as any).solana))
       case 'phantom':
-        return typeof window !== 'undefined' && ('phantom' in window || ('phantom' in window && 'solana' in (window as any).phantom))
+        return typeof window !== 'undefined' && ('phantom' in window || ('solana' in window && 'phantom' in (window as any).solana))
       default:
         return false
     }
@@ -122,17 +123,17 @@ const connectWallet = async (walletName: string) => {
   playClickSound()
   
   try {
-    let wallet: any
-    let publicKey: string
+    let rawWallet: any
+    let publicKey: PublicKey
     let balance: number
 
+    // Get the raw wallet object from window
     switch (walletName) {
       case 'Backpack':
         if (typeof window !== 'undefined' && 'backpack' in window) {
-          wallet = (window as any).backpack
-          await wallet.connect()
-          publicKey = wallet.publicKey.toString()
-          balance = await getWalletBalance(publicKey)
+          rawWallet = (window as any).backpack
+          await rawWallet.connect()
+          publicKey = rawWallet.publicKey
         } else {
           throw new Error('Backpack wallet not found. Please install Backpack extension.')
         }
@@ -140,14 +141,13 @@ const connectWallet = async (walletName: string) => {
 
       case 'Solflare':
         if (typeof window !== 'undefined' && 'solflare' in window) {
-          // Prefer window.solflare.solana if available
-          wallet = (window as any).solflare?.solana || (window as any).solflare
-          if (typeof wallet.connect !== 'function') {
+          // Try to get the correct Solflare wallet object
+          rawWallet = (window as any).solflare?.solana || (window as any).solflare
+          if (!rawWallet || typeof rawWallet.connect !== 'function') {
             throw new Error('Solflare wallet does not support connect().')
           }
-          await wallet.connect()
-          publicKey = wallet.publicKey.toString()
-          balance = await getWalletBalance(publicKey)
+          await rawWallet.connect()
+          publicKey = rawWallet.publicKey
         } else {
           throw new Error('Solflare wallet not found. Please install Solflare extension.')
         }
@@ -155,14 +155,13 @@ const connectWallet = async (walletName: string) => {
 
       case 'Phantom':
         if (typeof window !== 'undefined' && 'phantom' in window) {
-          // Prefer window.phantom.solana if available
-          wallet = (window as any).phantom?.solana || (window as any).phantom
-          if (typeof wallet.connect !== 'function') {
+          // Try to get the correct Phantom wallet object
+          rawWallet = (window as any).phantom?.solana || (window as any).phantom
+          if (!rawWallet || typeof rawWallet.connect !== 'function') {
             throw new Error('Phantom wallet does not support connect().')
           }
-          await wallet.connect()
-          publicKey = wallet.publicKey.toString()
-          balance = await getWalletBalance(publicKey)
+          await rawWallet.connect()
+          publicKey = rawWallet.publicKey
         } else {
           throw new Error('Phantom wallet not found. Please install Phantom extension.')
         }
@@ -172,8 +171,46 @@ const connectWallet = async (walletName: string) => {
         throw new Error('Unsupported wallet')
     }
 
+    // Validate that we have the required properties
+    if (!publicKey || !rawWallet.signTransaction) {
+      console.error('Wallet validation failed:', {
+        publicKey: !!publicKey,
+        signTransaction: !!rawWallet.signTransaction,
+        walletKeys: Object.keys(rawWallet)
+      })
+      throw new Error('Wallet does not provide required methods (publicKey or signTransaction)')
+    }
+
+    // Convert publicKey to PublicKey object if it's a string
+    if (typeof publicKey === 'string') {
+      publicKey = new PublicKey(publicKey)
+    }
+
+    // Get wallet balance
+    balance = await getWalletBalance(publicKey.toString())
+
+    // Create a standardized wallet object
+    const standardizedWallet = {
+      publicKey: publicKey, // Always a PublicKey object
+      signTransaction: rawWallet.signTransaction.bind(rawWallet),
+      signAllTransactions: rawWallet.signAllTransactions?.bind(rawWallet),
+      connect: rawWallet.connect?.bind(rawWallet),
+      disconnect: rawWallet.disconnect?.bind(rawWallet),
+      connected: true,
+      balance: balance * 1e9, // Always store balance in lamports
+      _raw: rawWallet // Keep reference to original wallet for debugging
+    }
+
+    console.log('[WalletConnection] Wallet connected successfully:', {
+      walletName,
+      publicKey: publicKey.toString(),
+      balance: balance,
+      hasSignTransaction: !!standardizedWallet.signTransaction,
+      walletMethods: Object.keys(standardizedWallet)
+    })
+
     // Emit connection success
-    emit('connected', publicKey, balance)
+    emit('connected', publicKey.toString(), balance, standardizedWallet)
 
   } catch (err: any) {
     error.value = err.message || 'Failed to connect wallet'
@@ -185,8 +222,8 @@ const connectWallet = async (walletName: string) => {
 
 const getWalletBalance = async (publicKey: string): Promise<number> => {
   try {
-    const config = useRuntimeConfig()
-    const connection = new Connection(config.public.gorbaganaRpcUrl)
+    const { rpcUrl } = useEnvironment()
+    const connection = new Connection(rpcUrl.value)
     const balance = await connection.getBalance(new PublicKey(publicKey))
     return balance / 1e9 // Convert lamports to SOL
   } catch (err) {

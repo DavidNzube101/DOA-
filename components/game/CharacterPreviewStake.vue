@@ -19,19 +19,57 @@
         <h2 class="section-title">Prepare for Battle</h2>
         <div class="wallet-balance">
           <span>Wallet Balance:</span>
-          <span class="balance">{{ walletBalance }} GOR</span>
+          <span class="balance">{{ walletBalance }} SOL</span>
         </div>
+        
+        <!-- Stake Input -->
         <div class="stake-input-group">
           <input
             v-model="stakeAmount"
             type="number"
-            min="0.1"
-            step="0.1"
-            placeholder="Enter stake amount in GOR"
+            :min="MIN_STAKE"
+            :max="MAX_STAKE"
+            step="0.001"
+            placeholder="Enter stake amount in SOL"
             class="stake-input"
+            :class="{ 'error': validationResult.errors.length > 0 }"
           />
           <button class="max-btn" @click="setMaxStake">MAX</button>
         </div>
+
+        <!-- Validation Errors -->
+        <div v-if="validationResult.errors.length > 0" class="validation-errors">
+          <div v-for="error in validationResult.errors" :key="error" class="error-message">
+            <Icon name="heroicons:exclamation-triangle" class="w-4 h-4" />
+            {{ error }}
+          </div>
+        </div>
+
+        <!-- Validation Warnings -->
+        <div v-if="validationResult.warnings.length > 0" class="validation-warnings">
+          <div v-for="warning in validationResult.warnings" :key="warning" class="warning-message">
+            <Icon name="heroicons:information-circle" class="w-4 h-4" />
+            {{ warning }}
+          </div>
+        </div>
+
+        <!-- Stake Suggestions -->
+        <div v-if="stakeSuggestions.length > 0" class="stake-suggestions">
+          <p class="suggestions-title">Quick Stake Options:</p>
+          <div class="suggestions-grid">
+            <button
+              v-for="suggestion in stakeSuggestions"
+              :key="suggestion.label"
+              class="suggestion-btn"
+              @click="stakeAmount = (suggestion.value / 1e9).toFixed(4)"
+            >
+              <span class="suggestion-label">{{ suggestion.label }}</span>
+              <span class="suggestion-amount">{{ (suggestion.value / 1e9).toFixed(3) }} SOL</span>
+              <span class="suggestion-desc">{{ suggestion.description }}</span>
+            </button>
+          </div>
+        </div>
+
         <button 
           class="enter-btn"
           :disabled="!canEnterBattle"
@@ -49,6 +87,7 @@ import { computed, ref, watch, onMounted, nextTick } from 'vue'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { useSound } from '~/composables/useSound'
+import { useStakeValidation } from '~/composables/useStakeValidation'
 
 const props = defineProps<{
   character: any
@@ -62,24 +101,41 @@ const emit = defineEmits<{
 // Sound system
 const { playClickSound } = useSound()
 
-const stakeAmount = ref('0.1')
+// Stake validation
+const { validateStakeAmount, formatStakeAmount, getStakeSuggestions, MIN_STAKE, MAX_STAKE } = useStakeValidation()
+
+const stakeAmount = ref(MIN_STAKE.toString())
+const validationResult = ref({ isValid: false, errors: [], warnings: [] })
+
+// Convert wallet balance to lamports for validation
+const walletBalanceLamports = computed(() => props.walletBalance * 1e9)
+
+// Validate stake amount whenever it changes
+watch(stakeAmount, (newAmount) => {
+  const amountInLamports = parseFloat(newAmount) * 1e9
+  validationResult.value = validateStakeAmount(amountInLamports, walletBalanceLamports.value)
+})
 
 const canEnterBattle = computed(() => {
-  const amount = parseFloat(stakeAmount.value)
-  return amount >= 0.1 && amount <= (props.walletBalance || 0)
+  return validationResult.value.isValid && parseFloat(stakeAmount.value) > 0
 })
 
 const setMaxStake = () => {
   playClickSound()
-  stakeAmount.value = (props.walletBalance || 0).toString()
+  const maxStake = Math.min(props.walletBalance * 0.9, MAX_STAKE) // Leave 10% for fees
+  stakeAmount.value = maxStake.toFixed(4)
 }
 
 const enterBattle = () => {
   if (canEnterBattle.value) {
     playClickSound()
-    emit('enter-battle', parseFloat(stakeAmount.value))
+    const amountInLamports = parseFloat(stakeAmount.value) * 1e9
+    emit('enter-battle', amountInLamports)
   }
 }
+
+// Get stake suggestions
+const stakeSuggestions = computed(() => getStakeSuggestions(walletBalanceLamports.value))
 
 // --- 3D Preview Logic ---
 const threePreview = ref<HTMLElement | null>(null)
@@ -404,5 +460,50 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.validation-errors, .validation-warnings, .stake-suggestions {
+  margin-bottom: 1rem;
+}
+.error-message, .warning-message {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.suggestions-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+.suggestions-grid {
+  display: flex;
+  gap: 0.5rem;
+}
+.suggestion-btn {
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+.suggestion-btn:hover {
+  background: #d97706;
+}
+.suggestion-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.suggestion-amount {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+.suggestion-desc {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
 }
 </style> 

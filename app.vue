@@ -1,5 +1,8 @@
 <template>
   <div class="game-container">
+    <!-- Toast Container -->
+    <ToastContainer />
+    
     <!-- Story Carousel -->
     <StoryCarousel v-if="isStoryVisible" @skip="skipStory" />
     
@@ -8,8 +11,8 @@
     
     <!-- Main Game Interface -->
     <div v-else-if="!isStoryVisible && !showCredits" class="game-interface">
-      <!-- Credits Button -->
-      <button class="credits-button" @click="onShowCredits">
+      <!-- Credits Button: only show if not inGame -->
+      <button v-if="!inGame" class="credits-button" @click="onShowCredits">
         <Icon name="heroicons:information-circle" class="w-5 h-5" />
         Credits
       </button>
@@ -30,6 +33,7 @@
         v-else-if="inLobby && !inGame"
         :wallet-balance="walletBalance"
         :wallet-address="walletAddress"
+        :wallet="walletAdapter"
         :selected-character="selectedCharacter"
         :socket="socket"
         @enter-battle="enterBattleFromLobby"
@@ -56,6 +60,8 @@ import { useStory } from '~/composables/useStory'
 import type { Character } from '~/types/game'
 import { io, Socket } from 'socket.io-client'
 import { useSound } from '~/composables/useSound'
+import { Buffer } from 'buffer'
+import { useToast } from '~/composables/useToast'
 
 import StoryCarousel from '~/components/story/StoryCarousel.vue'
 import WalletConnection from '~/components/wallet/WalletConnection.vue'
@@ -64,14 +70,17 @@ import CharacterPreviewStake from '~/components/game/CharacterPreviewStake.vue'
 import GameArena from '~/components/game/GameArena.vue'
 import BattleLobby from '~/components/game/BattleLobby.vue'
 import CreditsScreen from '~/components/ui/CreditsScreen.vue'
+import ToastContainer from '~/components/ui/ToastContainer.vue'
 
 // Composables
 const { isStoryVisible, skipStory } = useStory()
+const { success: showSuccess, error: showError, info: showInfo } = useToast()
 
 // Game state
 const walletConnected = ref(false)
 const walletAddress = ref('')
 const walletBalance = ref(0)
+const walletAdapter = ref<any>(null)
 const inGame = ref(false)
 const inLobby = ref(false)
 const selectedCharacter = ref<Character | null>(null)
@@ -89,6 +98,7 @@ const bgm = ref<HTMLAudioElement | null>(null)
 const fadeDuration = 1000 // ms
 
 const socket = ref<Socket | null>(null)
+const battleState = ref(null)
 
 // Sound system
 const { playClickSound } = useSound()
@@ -149,6 +159,27 @@ onMounted(() => {
   window.addEventListener('click', startMusic)
   window.addEventListener('pointerdown', startMusic)
   window.addEventListener('keydown', startMusic)
+
+  // Socket event listeners for battle state and errors
+  if (socket.value) {
+    socket.value.on('battle_state', (state) => {
+      battleState.value = state
+      showSuccess('Battle state synced from blockchain!')
+      console.log('[BATTLE_STATE]', state)
+    })
+    socket.value.on('match_error', (err) => {
+      showError(err?.error || 'Matchmaking error')
+      console.error('[MATCH_ERROR]', err)
+    })
+    socket.value.on('battle_resolved', (data) => {
+      showSuccess(`Battle resolved! ${data.message}`)
+      console.log('[BATTLE_RESOLVED]', data)
+    })
+    socket.value.on('battle_resolution_error', (err) => {
+      showError(err?.error || 'Battle resolution failed')
+      console.error('[BATTLE_RESOLUTION_ERROR]', err)
+    })
+  }
 })
 
 onUnmounted(() => {
@@ -162,13 +193,15 @@ onUnmounted(() => {
 if (typeof window !== 'undefined') {
   window.__fadeOutGameTrack = fadeOutGameTrack
   window.__fadeInGameTrack = fadeInGameTrack
+  window.Buffer = Buffer
 }
 
 // Event handlers
-const onWalletConnected = (publicKey: string, balance: number) => {
+const onWalletConnected = (publicKey: string, balance: number, wallet: any) => {
   walletConnected.value = true
   walletAddress.value = publicKey
   walletBalance.value = balance
+  walletAdapter.value = wallet
 }
 
 const onCharacterSelected = (character: Character) => {
@@ -186,11 +219,33 @@ const onShowCredits = () => {
   showCredits.value = true
 }
 
-const enterBattleFromLobby = (stakeAmount: number, opponentId: string, yourId: string, opponentCharacterName: string) => {
-  console.log('[DEBUG] enterBattleFromLobby called with:', stakeAmount, opponentId, yourId, opponentCharacterName, socket.value)
-  inGame.value = true
-  inLobby.value = false
-  gameState.value = { stakeAmount, opponentId, yourId, opponentCharacterName }
+const enterBattleFromLobby = (payload) => {
+  // Support both old and new payload shapes
+  let stakeAmount, playerOne, playerTwo, characterOne, characterTwo;
+  if (typeof payload === 'object' && payload !== null) {
+    stakeAmount = payload.stakeAmount || payload.stake_amount || 0;
+    playerOne = payload.playerOne;
+    playerTwo = payload.playerTwo;
+    characterOne = payload.characterOne;
+    characterTwo = payload.characterTwo;
+  } else {
+    // fallback for old signature
+    [stakeAmount, playerTwo, playerOne, characterTwo, characterOne] = arguments;
+  }
+  // Determine which player is 'you' and which is 'opponent'
+  let yourId, opponentId, opponentCharacterName;
+  if (walletAddress.value === playerOne) {
+    yourId = playerOne;
+    opponentId = playerTwo;
+    opponentCharacterName = characterTwo;
+  } else {
+    yourId = playerTwo;
+    opponentId = playerOne;
+    opponentCharacterName = characterOne;
+  }
+  inGame.value = true;
+  inLobby.value = false;
+  gameState.value = { stakeAmount, opponentId, yourId, opponentCharacterName };
 }
 
 const onGameEnded = (result: any) => {

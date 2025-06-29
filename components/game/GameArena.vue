@@ -33,17 +33,9 @@
           <Icon name="heroicons:clock" class="w-5 h-5" />
           <div class="timer">{{ formatTime(timeRemaining) }}</div>
         </div>
-        <div class="player-count">
-          <Icon name="heroicons:users" class="w-5 h-5" />
-          <span>{{ playerCount }} Players</span>
-        </div>
-        <div class="deaths-counter">
-          <Icon name="heroicons:skull" class="w-5 h-5" />
-          <span>{{ deaths }} Deaths</span>
-        </div>
         <div class="stake-display">
           <Icon name="heroicons:currency-dollar" class="w-5 h-5" />
-          <span>{{ stakeAmount }} GOR Staked</span>
+          <span>{{ formattedStakeAmount }} GOR Staked</span>
         </div>
         <button class="settings-btn" @click="onSettingsClick">⚙️</button>
       </div>
@@ -114,10 +106,39 @@
           <div class="modal-stats">
             <div class="stat-item"><span class="stat-label">Final Health:</span><span class="stat-value">{{ playerHealth }}</span></div>
             <div class="stat-item"><span class="stat-label">Time Survived:</span><span class="stat-value">{{ formatTime(gameDuration) }}</span></div>
-            <div class="stat-item"><span class="stat-label">Stake Amount:</span><span class="stat-value">{{ stakeAmount }} GOR</span></div>
-            <div class="stat-item"><span class="stat-label">Payout:</span><span class="stat-value" :class="{ 'text-green-400': gameResult.won, 'text-red-400': !gameResult.won }">{{ gameResult.won ? `+${stakeAmount * 2}` : `-${stakeAmount}` }} GOR</span></div>
+            <div class="stat-item"><span class="stat-label">Stake Amount:</span><span class="stat-value">{{ formatGor(totalStake) }}</span></div>
+            <div class="stat-item"><span class="stat-label">Payout:</span><span class="stat-value" :class="{ 'text-green-400': gameResult.won, 'text-red-400': !gameResult.won }">{{ gameResult.won ? `+${formatGor(winnerPayout)}` : `-${formatGor(loserLoss)}` }}</span></div>
           </div>
           <button class="modal-button" @click="onExitGame">Return to Lobby</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Early Victory Popup -->
+    <div v-if="showEarlyVictoryPopup" class="modal-overlay">
+      <div class="modal-content victory">
+        <div class="modal-flashy-bg victory"></div>
+        <div class="royal-sparkles"></div>
+        <div class="modal-content animated victory">
+          <svg class="modal-crown" viewBox="0 0 64 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 32L16 8L32 32L48 8L60 32" stroke="#ffd700" stroke-width="4" fill="#fffbe6"/>
+            <ellipse cx="16" cy="8" rx="4" ry="4" fill="#ffd700"/>
+            <ellipse cx="48" cy="8" rx="4" ry="4" fill="#ffd700"/>
+            <ellipse cx="32" cy="32" rx="6" ry="6" fill="#ffd700"/>
+            <ellipse cx="32" cy="8" rx="5" ry="5" fill="#ffb300"/>
+          </svg>
+          <h2 class="modal-title">Victory!</h2>
+          <p class="modal-message">You defeated your opponent! Waiting for battle deadline to resolve on-chain...</p>
+          <div class="countdown-container">
+            <div class="countdown-label">Resolving in:</div>
+            <div class="countdown-timer">{{ formatTime(earlyVictoryCountdown || 0) }}</div>
+          </div>
+          <div class="modal-stats">
+            <div class="stat-item"><span class="stat-label">Final Health:</span><span class="stat-value">{{ playerHealth }}</span></div>
+            <div class="stat-item"><span class="stat-label">Time Remaining:</span><span class="stat-value">{{ formatTime(earlyVictoryTime || 0) }}</span></div>
+            <div class="stat-item"><span class="stat-label">Stake Amount:</span><span class="stat-value">{{ formatGor(totalStake) }}</span></div>
+            <div class="stat-item"><span class="stat-label">Expected Payout:</span><span class="stat-value text-green-400">+{{ formatGor(winnerPayout) }}</span></div>
+          </div>
         </div>
       </div>
     </div>
@@ -146,7 +167,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
@@ -166,8 +187,12 @@ const maxHealth = ref(100)
 const gameEnded = ref(false)
 const gameDuration = ref(0)
 const gameResult = ref({ won: false, message: '' })
-const playerCount = ref(8)
-const deaths = ref(3)
+
+// Early victory countdown state
+const earlyVictoryCountdown = ref<number | null>(null)
+const earlyVictoryTime = ref<number | null>(null)
+const showEarlyVictoryPopup = ref(false)
+let earlyVictoryInterval: NodeJS.Timeout | null = null
 
 // Safe zone and terrain state
 const safeZoneRadius = 17
@@ -1173,7 +1198,10 @@ onMounted(() => {
     gameDuration.value = elapsed
     if (timeRemaining.value <= 0) {
       if (playerHealth.value > 0) {
-        endGame(true, 'You survived the arena!')
+        // Notify the server that you survived, but do NOT set gameEnded/gameResult here
+        if (socket.value && socket.value.connected) {
+          socket.value.emit('game_end', { survived: true });
+        }
       } else {
         endGame(false, 'You were defeated before time ran out!')
       }
@@ -1203,6 +1231,42 @@ onMounted(() => {
     socket.value.on('opponent_disconnected', () => {
       opponentDisconnected.value = true
     })
+    socket.value.on('opponent_game_end', (result: any) => {
+      if (!gameEnded.value) {
+        // Check if this is an early defeat notification
+        if (result.earlyDefeat) {
+          console.log('[DEBUG] Received early defeat notification, showing early victory popup');
+          // Show early victory popup for the winner
+          showEarlyVictoryPopup.value = true;
+          earlyVictoryTime.value = result.countdownTime;
+          earlyVictoryCountdown.value = result.countdownTime;
+          
+          // Start countdown interval
+          earlyVictoryInterval = setInterval(() => {
+            if (earlyVictoryCountdown.value && earlyVictoryCountdown.value > 0) {
+              earlyVictoryCountdown.value--;
+            } else {
+              // Countdown finished, end the game
+              clearInterval(earlyVictoryInterval!);
+              earlyVictoryInterval = null;
+              showEarlyVictoryPopup.value = false;
+              gameEnded.value = true;
+              gameResult.value = { won: true, message: 'You defeated your opponent!' };
+            }
+          }, 1000);
+        } else {
+          // Normal game end
+          gameEnded.value = true;
+          gameResult.value = { won: result.won, message: result.message };
+        }
+      }
+    })
+  }
+  if (socket.value) {
+    socket.value.on('battle_resolved', (result: any) => {
+      gameEnded.value = true;
+      gameResult.value = { won: result.won, message: result.message };
+    });
   }
 })
 
@@ -1212,6 +1276,7 @@ onUnmounted(() => {
   if (animationId) cancelAnimationFrame(animationId)
   if (lifeDrainInterval) clearInterval(lifeDrainInterval)
   if (gameLoop) clearInterval(gameLoop)
+  if (earlyVictoryInterval) clearInterval(earlyVictoryInterval)
   if (renderer && renderer.domElement && renderer.domElement.parentNode) {
     renderer.domElement.parentNode.removeChild(renderer.domElement)
   }
@@ -1251,15 +1316,59 @@ const formatTime = (seconds: number): string => {
 }
 const startTutorial = () => {}
 const startGame = () => {}
-const endGame = (won: boolean, message: string) => {
-  console.log('[DEBUG] endGame called. won:', won, 'message:', message)
-  gameEnded.value = true
-  gameResult.value = { won, message }
-  // Notify opponent
-  if (socket.value && socket.value.connected) {
-    socket.value.emit('game_end', { won: !won, message: won ? 'You were defeated!' : 'You were defeated!' })
+const endGame = (won: boolean, message: string, tie?: boolean) => {
+  console.log('[DEBUG] endGame called. won:', won, 'message:', message, 'tie:', tie)
+  
+  // If this is an early victory (opponent died before deadline), start countdown
+  if (won && timeRemaining.value > 0) {
+    console.log('[DEBUG] Early victory detected, starting countdown to battle deadline')
+    showEarlyVictoryPopup.value = true
+    earlyVictoryTime.value = timeRemaining.value
+    earlyVictoryCountdown.value = timeRemaining.value
+    
+    // Start countdown interval
+    earlyVictoryInterval = setInterval(() => {
+      if (earlyVictoryCountdown.value && earlyVictoryCountdown.value > 0) {
+        earlyVictoryCountdown.value--
+      } else {
+        // Countdown finished, now we can safely call resolve_battle
+        clearInterval(earlyVictoryInterval!)
+        earlyVictoryInterval = null
+        showEarlyVictoryPopup.value = false
+        completeGameEnd(won, message, tie)
+      }
+    }, 1000)
+    
+    // Notify opponent of early defeat
+    if (socket.value && socket.value.connected) {
+      socket.value.emit('game_end', { 
+        won: false, 
+        message: 'You were defeated early!',
+        earlyDefeat: true,
+        countdownTime: timeRemaining.value
+      })
+    }
+  } else {
+    // Normal game end (time expired or both players died)
+    completeGameEnd(won, message, tie)
   }
 }
+
+const completeGameEnd = (won: boolean, message: string, tie?: boolean) => {
+  console.log('[DEBUG] completeGameEnd called. won:', won, 'message:', message, 'tie:', tie)
+  gameEnded.value = true
+  gameResult.value = { won, message }
+  
+  // Notify opponent (only if not already notified for early defeat)
+  if (socket.value && socket.value.connected && !showEarlyVictoryPopup.value) {
+    socket.value.emit('game_end', { 
+      won: !won, 
+      message: won ? 'You were defeated!' : 'You defeated your opponent!',
+      tie: tie // Include tie flag
+    })
+  }
+}
+
 const exitGame = () => {
   emit('game-ended', gameResult.value)
 }
@@ -1325,7 +1434,14 @@ watch(playerHealth, (val) => {
   console.log('[DEBUG] playerHealth changed:', val, 'gameEnded:', gameEnded.value)
   if (val <= 0 && !gameEnded.value) {
     console.log('[DEBUG] Triggering endGame from watcher')
+    
+    // Check if opponent also has 0 health (tie scenario)
+    if (opponentHealth.value <= 0) {
+      console.log('[DEBUG] Tie detected - both players have 0 health')
+      endGame(false, 'Both players fell simultaneously!', true) // true = tie flag
+    } else {
     endGame(false, 'You were defeated!')
+    }
   }
 })
 
@@ -1467,8 +1583,32 @@ if (typeof window !== 'undefined') {
     if (s) {
       s.on('opponent_game_end', (result: any) => {
         if (!gameEnded.value) {
-          gameEnded.value = true
-          gameResult.value = { won: result.won, message: result.message }
+          // Check if this is an early defeat notification
+          if (result.earlyDefeat) {
+            console.log('[DEBUG] Received early defeat notification, showing early victory popup');
+            // Show early victory popup for the winner
+            showEarlyVictoryPopup.value = true;
+            earlyVictoryTime.value = result.countdownTime;
+            earlyVictoryCountdown.value = result.countdownTime;
+            
+            // Start countdown interval
+            earlyVictoryInterval = setInterval(() => {
+              if (earlyVictoryCountdown.value && earlyVictoryCountdown.value > 0) {
+                earlyVictoryCountdown.value--;
+              } else {
+                // Countdown finished, end the game
+                clearInterval(earlyVictoryInterval!);
+                earlyVictoryInterval = null;
+                showEarlyVictoryPopup.value = false;
+                gameEnded.value = true;
+                gameResult.value = { won: true, message: 'You defeated your opponent!' };
+              }
+            }, 1000);
+          } else {
+            // Normal game end
+            gameEnded.value = true;
+            gameResult.value = { won: result.won, message: result.message };
+          }
         }
       })
     }
@@ -1519,6 +1659,45 @@ function onExitGame() {
 
 // Sound system
 const { playAttackSound, playGlowOrbSound, playFootstepsSound, playClickSound } = useSound()
+
+// Defensive: ensure stakeAmount is a number
+function getStakeAmountNumber() {
+  if (typeof props.stakeAmount === 'number') return props.stakeAmount;
+  if (props.stakeAmount && typeof props.stakeAmount === 'object' && 'stakeAmount' in props.stakeAmount) {
+    // Legacy/incorrect prop shape
+    return Number(props.stakeAmount.stakeAmount) || 0;
+  }
+  if (typeof props.stakeAmount === 'string') return Number(props.stakeAmount) || 0;
+  console.warn('[GameArena] stakeAmount prop is not a number:', props.stakeAmount);
+  return 0;
+}
+
+const formattedStakeAmount = computed(() => {
+  const amt = getStakeAmountNumber();
+  if (amt > 1e6) {
+    return (amt / 1e9).toFixed(3);
+  }
+  return amt.toString();
+});
+
+// Utility: Format lamports as GOR with commas and decimals
+function formatGor(lamports: number): string {
+  return (lamports / 1_000_000_000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' GOR';
+}
+
+// --- Win/Loss Modal Computed ---
+const totalStake = computed(() => getStakeAmountNumber());
+const winnerPayout = computed(() => totalStake.value * 2);
+const loserLoss = computed(() => totalStake.value);
+
+// Watch opponentHealth: end game if opponent reaches 0
+watch(opponentHealth, (val) => {
+  if (val <= 0 && !gameEnded.value) {
+    // Don't call endGame here - let the opponent send the early defeat notification
+    // The winner will see the early victory popup and countdown
+    console.log('[DEBUG] Opponent health reached 0, waiting for their game_end notification');
+  }
+});
 </script>
 
 <style scoped>
@@ -1563,7 +1742,7 @@ const { playAttackSound, playGlowOrbSound, playFootstepsSound, playClickSound } 
   padding: 2rem;
   width: 100vw;
 }
-.timer-container, .player-count, .deaths-counter, .stake-display, .health-container, .controls-info {
+.timer-container, .stake-display, .health-container, .controls-info {
   background: rgba(30, 32, 60, 0.7);
   border-radius: 16px;
   box-shadow: 0 4px 32px rgba(99,102,241,0.12);
@@ -2058,5 +2237,100 @@ const { playAttackSound, playGlowOrbSound, playFootstepsSound, playClickSound } 
   background: #222;
   color: #fffbe6;
   border: 1px solid #ffd700;
+}
+
+/* Early Victory Popup Styles */
+.modal-overlay.victory {
+  background: rgba(10, 10, 30, 0.85);
+}
+.modal-content.victory {
+  border-image: linear-gradient(120deg, #fffbe6 10%, #ffd700 40%, #ffb300 80%, #a67c00 100%) 1;
+  box-shadow: 0 0 64px 0 #ffd700cc, 0 2px 16px #0008, 0 0 0 8px #fffbe622;
+}
+.modal-content.victory .modal-flashy-bg {
+  background: radial-gradient(circle at 60% 40%, #fffbe6 0%, #ffd700 40%, #ffb300 80%, #a67c00 100%);
+  box-shadow: 0 0 120px 60px #ffd70099;
+  animation: goldPulse 2s infinite alternate;
+}
+.modal-content.victory .royal-sparkles {
+  background: url('data:image/svg+xml;utf8,<svg width="120" height="60" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="2" fill="%23fffbe6"/><circle cx="60" cy="10" r="1.5" fill="%23ffd700"/><circle cx="100" cy="30" r="2.5" fill="%23ffb300"/><circle cx="80" cy="50" r="1.2" fill="%23fffbe6"/></svg>');
+  background-size: 120px 60px;
+  opacity: 0.7;
+  animation: sparkleFloat 2.5s infinite linear alternate;
+}
+.modal-content.victory .royal-petals {
+  background: url('data:image/svg+xml;utf8,<svg width="120" height="60" xmlns="http://www.w3.org/2000/svg"><ellipse cx="20" cy="20" rx="2" ry="5" fill="%23a67c00"/><ellipse cx="60" cy="10" rx="1.5" ry="4" fill="%237a0000"/><ellipse cx="100" cy="30" rx="2.5" ry="6" fill="%234b1c3c"/><ellipse cx="80" cy="50" rx="1.2" ry="3" fill="%23ffeaea"/></svg>');
+  background-size: 120px 60px;
+  opacity: 0.5;
+  animation: petalFall 2.5s infinite linear alternate;
+}
+.modal-content.victory .countdown-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.modal-content.victory .countdown-label {
+  font-size: 1.2rem;
+  color: #fff;
+  font-weight: 700;
+}
+.modal-content.victory .countdown-timer {
+  font-size: 2rem;
+  color: #ffd700;
+  font-weight: 900;
+}
+.modal-content.victory .stat-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 1.1rem;
+  color: #fffbe6;
+  text-shadow: 0 1px 8px #000a;
+}
+.modal-content.victory .stat-label {
+  font-weight: 700;
+  color: #ffd700;
+}
+.modal-content.victory .stat-value {
+  font-weight: 700;
+  color: #fff;
+}
+.modal-content.victory .stat-value.text-green-400 {
+  color: #22ff88;
+  text-shadow: 0 1px 8px #000a, 0 0 8px #22ff88aa;
+}
+.modal-content.victory .stat-value.text-red-400 {
+  color: #ff3b3b;
+  text-shadow: 0 1px 8px #000a, 0 0 8px #ff3b3baa;
+}
+
+/* Early Victory Popup Styles */
+.countdown-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background: rgba(255, 215, 0, 0.1);
+  border-radius: 12px;
+  border: 2px solid #ffd700;
+}
+
+.countdown-label {
+  font-size: 1.1rem;
+  color: #fff;
+  font-weight: 600;
+  text-shadow: 0 1px 4px #000a;
+}
+
+.countdown-timer {
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: #ffd700;
+  font-family: monospace;
+  text-shadow: 0 2px 16px #ffd700cc, 0 1px 2px #000a;
+  animation: goldPulse 1s infinite alternate;
 }
 </style> 

@@ -38,8 +38,8 @@
           <input
             v-model="stakeAmount"
             type="number"
-            min="0.1"
-            step="0.1"
+            min="0.001"
+            step="0.001"
             placeholder="Enter stake amount in GOR"
             class="stake-field"
           />
@@ -50,7 +50,7 @@
             MAX
           </button>
         </div>
-        <p class="stake-hint">Minimum stake: 0.1 GOR</p>
+        <p class="stake-hint">Minimum stake: 0.001 GOR</p>
       </div>
 
       <div class="lobby-actions">
@@ -59,9 +59,29 @@
           :disabled="!canEnterBattle"
           @click="enterBattle"
         >
-          <Icon name="heroicons:play" class="w-5 h-5" />
-          Enter Battle
+          <Icon v-if="isCreatingBattle" name="heroicons:arrow-path" class="w-5 h-5 animate-spin" />
+          <Icon v-else name="heroicons:play" class="w-5 h-5" />
+          {{ isCreatingBattle ? 'Creating Battle...' : 'Enter Battle' }}
         </button>
+      </div>
+
+      <!-- Transaction Status -->
+      <div v-if="transactionStatus !== 'idle'" class="transaction-status">
+        <div v-if="transactionStatus === 'pending'" class="status-pending">
+          <Icon name="heroicons:arrow-path" class="w-5 h-5 animate-spin" />
+          <span>Creating battle on {{ networkName }}...</span>
+        </div>
+        <div v-else-if="transactionStatus === 'success'" class="status-success">
+          <Icon name="heroicons:check-circle" class="w-5 h-5" />
+          <span>Battle created successfully!</span>
+          <a v-if="getTransactionUrl" :href="getTransactionUrl" target="_blank" class="transaction-link">
+            View Transaction
+          </a>
+        </div>
+        <div v-else-if="transactionStatus === 'failed'" class="status-error">
+          <Icon name="heroicons:exclamation-triangle" class="w-5 h-5" />
+          <span>Failed to create battle: {{ battleError }}</span>
+        </div>
       </div>
 
       <div class="lobby-info">
@@ -82,7 +102,7 @@
         <h2>Waiting for Opponent...</h2>
         <p>Searching for another player to join your game.</p>
         <div class="timer-circle">{{ matchmakingTimer }}</div>
-        <p>If no one joins in 30 seconds, you'll be returned to the lobby and your stake refunded.</p>
+        <p>If no one joins in 40 seconds, you'll be returned to the lobby and your stake refunded.</p>
       </div>
     </div>
     <!-- Timeout Popup -->
@@ -99,25 +119,41 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue'
 import { useSound } from '~/composables/useSound'
+import { useBattleCreation } from '~/composables/useBattleCreation'
+import { useEnvironment } from '~/composables/useEnvironment'
 
 // Props
 const props = defineProps<{
   selectedCharacter: any,
   walletAddress: string,
   walletBalance: number,
+  wallet: any,
   socket: any
 }>()
 
 // Sound system
 const { playClickSound } = useSound()
 
+// Battle creation
+const { 
+  createBattle, 
+  isCreatingBattle, 
+  transactionStatus, 
+  transactionSignature, 
+  error: battleError,
+  getTransactionUrl 
+} = useBattleCreation()
+
+// Environment
+const { networkName } = useEnvironment()
+
 // State
-const stakeAmount = ref('0.1')
+const stakeAmount = ref('0.01') // Default to recommended stake
 
 // Matchmaking state
 const waitingForOpponent = ref(false)
 const matchTimeoutPopup = ref(false)
-const matchmakingTimer = ref(30)
+const matchmakingTimer = ref(40)
 let matchmakingInterval: NodeJS.Timeout | null = null
 let imgError = ref(false)
 
@@ -129,30 +165,45 @@ const truncatedWallet = computed(() => {
 
 const canEnterBattle = computed(() => {
   const amount = parseFloat(stakeAmount.value)
-  return amount >= 0.1 && amount <= props.walletBalance
+  return amount >= 0.001 && amount <= props.walletBalance && !isCreatingBattle.value
 })
 
 // Methods
 const setMaxStake = () => {
   playClickSound()
-  stakeAmount.value = (props.walletBalance || 0).toString()
+  const maxStake = Math.min(props.walletBalance * 0.9, 10) // Leave 10% for fees, max 10 SOL
+  stakeAmount.value = maxStake.toFixed(4)
 }
 
-const startMatchmaking = () => {
+const startMatchmaking = (battleAccountPubkey: string) => {
   waitingForOpponent.value = true
-  matchmakingTimer.value = 30
+  matchmakingTimer.value = 40
   clearMatchmakingInterval()
   // Use socket from props
   const s = props.socket
   if (!s) return
   // Remove old listeners
-  s.off('match_found')
+  s.off('battle_ready')
   s.off('match_timeout')
-  s.emit('join_queue', { characterName: props.selectedCharacter?.name })
-  s.on('match_found', (data: any) => {
+  s.emit('join_queue', {
+    characterName: props.selectedCharacter?.name,
+    walletPubkey: props.wallet?.publicKey?.toString?.() || '',
+    battleAccountPubkey: battleAccountPubkey
+  })
+  s.on('battle_ready', (data: any) => {
     waitingForOpponent.value = false
     clearMatchmakingInterval()
-    emit('enter-battle', parseFloat(stakeAmount.value), data.opponentId, data.yourId, data.opponentCharacterName)
+    // Transition to game arena, pass all relevant info
+    emit('enter-battle', {
+      stakeAmount: parseFloat(stakeAmount.value) * 1e9,
+      battle: data.battle,
+      playerTwoBattle: data.playerTwoBattle,
+      playerOne: data.playerOne,
+      playerTwo: data.playerTwo,
+      characterOne: data.characterOne,
+      characterTwo: data.characterTwo,
+      joinBattleTx: data.joinBattleTx
+    })
   })
   s.on('match_timeout', () => {
     waitingForOpponent.value = false
@@ -174,10 +225,61 @@ function clearMatchmakingInterval() {
   }
 }
 
-const enterBattle = () => {
-  if (canEnterBattle.value) {
+const enterBattle = async () => {
+  if (!canEnterBattle.value) return
+  
     playClickSound()
-    startMatchmaking()
+  
+  try {
+    // Convert stake amount to lamports
+    const stakeInLamports = parseFloat(stakeAmount.value) * 1e9
+    
+    console.log('🎮 Starting Battle Creation Process...')
+    console.log('📊 Pre-battle Details:', {
+      character: props.selectedCharacter?.name,
+      stakeAmount: `${parseFloat(stakeAmount.value)} SOL`,
+      stakeInLamports,
+      walletAddress: props.walletAddress,
+      walletBalance: `${props.walletBalance} SOL`,
+      walletBalanceInLamports: props.walletBalance * 1e9,
+      walletObject: {
+        hasPublicKey: !!props.wallet?.publicKey,
+        hasSignTransaction: !!props.wallet?.signTransaction,
+        publicKeyType: props.wallet?.publicKey ? typeof props.wallet.publicKey : 'undefined',
+        walletKeys: props.wallet ? Object.keys(props.wallet) : null
+      },
+      timestamp: new Date().toISOString()
+    })
+    
+    // Validate wallet object before proceeding
+    if (!props.wallet || !props.wallet.publicKey || !props.wallet.signTransaction) {
+      console.error('❌ Invalid wallet object:', {
+        wallet: !!props.wallet,
+        publicKey: !!props.wallet?.publicKey,
+        signTransaction: !!props.wallet?.signTransaction
+      })
+      throw new Error('Wallet object is invalid. Please reconnect your wallet.')
+    }
+    
+    // Create battle on blockchain
+    const result = await createBattle(stakeInLamports, props.wallet)
+    
+    if (result.success) {
+      console.log('🎯 Battle created successfully, initiating matchmaking...')
+      console.log('🔗 Battle Account:', result.battleAccount)
+      console.log('📝 Transaction:', result.signature)
+      
+      // Start matchmaking after successful battle creation
+      startMatchmaking(result.battleAccount)
+    } else {
+      console.error('❌ Battle creation failed:', result.error)
+      // Error toast is already shown by the composable
+    }
+    
+  } catch (err: any) {
+    console.error('💥 Unexpected error during battle creation:', err)
+    // Show error toast
+    showError(err.message || 'An unexpected error occurred during battle creation')
   }
 }
 
@@ -525,5 +627,40 @@ const emit = defineEmits<{
   background: #232347;
   display: block;
   margin: 0 auto;
+}
+
+/* Transaction Status Styles */
+.transaction-status {
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.status-pending,
+.status-success,
+.status-error {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.status-pending {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.status-success {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.status-error {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.transaction-link {
+  color: var(--primary-color);
+  text-decoration: none;
 }
 </style>

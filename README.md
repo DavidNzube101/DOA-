@@ -1,75 +1,47 @@
-# Nuxt Minimal Starter
+# Daughters of Aether – Game UI
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+This is the frontend for Daughters of Aether, a real-time Web3 PvP arena game built with Nuxt 3, Vue 3, and Three.js.
 
-## Setup
+## Features
 
-Make sure to install dependencies:
+- **Wallet Connection:** Connects to Solana wallets (Phantom, Solflare, etc.).
+- **Character Selection:** 3D character previews and selection.
+- **Staking:** Players stake tokens to enter battles.
+- **Matchmaking:** Real-time matchmaking via Socket.IO.
+- **Battle Arena:** 3D real-time battles with health, mana, and animations.
+- **Battle Resolution:** Victory, defeat, tie, forfeit, and disconnect scenarios with animated modals and sound.
+- **Transaction Feedback:** Real-time transaction status, error handling, and user feedback.
 
-```bash
-# npm
-npm install
+## Getting Started
 
-# pnpm
-pnpm install
+1. **Install dependencies:**
+   ```
+   pnpm install
+   ```
+2. **Set environment variables:**  
+   Configure RPC URLs, program IDs, and server URLs in `.env` or Vercel dashboard.
 
-# yarn
-yarn install
+3. **Run locally:**
+   ```
+   pnpm dev
+   ```
 
-# bun
-bun install
-```
+4. **Build for production:**
+   ```
+   pnpm build
+   pnpm start
+   ```
 
-## Development Server
+## Deployment
 
-Start the development server on `http://localhost:3000`:
+- Deploy to Vercel for serverless hosting.
+- Set all required environment variables in Vercel dashboard.
 
-```bash
-# npm
-npm run dev
+## Tech Stack
 
-# pnpm
-pnpm dev
+- Nuxt 3, Vue 3, Three.js, Socket.IO, Solana web3.js
 
-# yarn
-yarn dev
+## Security
 
-# bun
-bun run dev
-```
-
-## Production
-
-Build the application for production:
-
-```bash
-# npm
-npm run build
-
-# pnpm
-pnpm build
-
-# yarn
-yarn build
-
-# bun
-bun run build
-```
-
-Locally preview production build:
-
-```bash
-# npm
-npm run preview
-
-# pnpm
-pnpm preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
-```
-
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
+- Never expose private keys or secrets in the frontend.
+- Always test on devnet before mainnet.
