@@ -1,24 +1,19 @@
 <template>
   <div class="game-container">
-    <AssetDownloadModal :visible="showAssetModal" @close="showAssetModal = false" />
     <ToastContainer />
     <!-- Story Carousel -->
     <StoryCarousel v-if="isStoryVisible" @skip="skipStory" />
-    
     <!-- Credits Screen -->
     <CreditsScreen v-if="showCredits" @close="showCredits = false" />
-    
     <!-- Main Game Interface -->
-    <div v-else-if="!isStoryVisible && !showCredits && !showAssetModal" class="game-interface">
+    <div v-else-if="!isStoryVisible && !showCredits" class="game-interface">
       <!-- Credits Button: only show if not inGame -->
       <button v-if="!inGame" class="credits-button" @click="onShowCredits">
         <Icon name="heroicons:information-circle" class="w-5 h-5" />
         Credits
       </button>
-      
       <!-- Wallet Connection -->
       <WalletConnection v-if="!walletConnected" @connected="onWalletConnected" />
-      
       <!-- Character Selection -->
       <CharacterSelection 
         v-else-if="!selectedCharacter && !inLobby" 
@@ -26,7 +21,6 @@
         :wallet-balance="walletBalance"
         @character-selected="onCharacterSelected" 
       />
-      
       <!-- Battle Lobby -->
       <BattleLobby
         v-else-if="inLobby && !inGame"
@@ -37,7 +31,6 @@
         :socket="socket"
         @enter-battle="enterBattleFromLobby"
       />
-      
       <!-- Game Arena -->
       <GameArena 
         v-else 
@@ -149,9 +142,6 @@ function fadeOutGameTrack() {
   step()
 }
 
-const showAssetModal = ref(true)
-const { areAllAssetsCached } = useAssetCache()
-
 onMounted(async () => {
   // Only play music after user interaction (browser autoplay policy)
   const startMusic = () => {
@@ -183,13 +173,6 @@ onMounted(async () => {
       showError(err?.error || 'Battle resolution failed')
       console.error('[BATTLE_RESOLUTION_ERROR]', err)
     })
-  }
-
-  // Asset cache check
-  if (await areAllAssetsCached()) {
-    showAssetModal.value = false
-  } else {
-    showAssetModal.value = true
   }
 })
 
