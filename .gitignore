@@ -32,6 +32,7 @@ logs
 # Misc
 CONTRACT_INTEGRATION_TODO.txt
 claude_changes.txt
+/Combined
 
 # Test ledger
 /test-ledger

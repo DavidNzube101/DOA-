@@ -3,7 +3,7 @@ import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstructi
 import { useEnvironment } from './useEnvironment'
 import { useStakeValidation } from './useStakeValidation'
 import { useToast } from './useToast'
-import idl from '~/DOA-Contract/idl.json'
+import idl from '~/types/idl.json'
 import { sha256 } from '@noble/hashes/sha256'
 
 // Assignable base class for borsh schema classes (Solana Cookbook pattern)
