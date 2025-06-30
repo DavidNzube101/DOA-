@@ -1,8 +1,7 @@
 <template>
   <div class="game-container">
-    <!-- Toast Container -->
+    <AssetDownloadModal :visible="showAssetModal" @close="showAssetModal = false" />
     <ToastContainer />
-    
     <!-- Story Carousel -->
     <StoryCarousel v-if="isStoryVisible" @skip="skipStory" />
     
@@ -10,7 +9,7 @@
     <CreditsScreen v-if="showCredits" @close="showCredits = false" />
     
     <!-- Main Game Interface -->
-    <div v-else-if="!isStoryVisible && !showCredits" class="game-interface">
+    <div v-else-if="!isStoryVisible && !showCredits && !showAssetModal" class="game-interface">
       <!-- Credits Button: only show if not inGame -->
       <button v-if="!inGame" class="credits-button" @click="onShowCredits">
         <Icon name="heroicons:information-circle" class="w-5 h-5" />
@@ -62,6 +61,8 @@ import { io, Socket } from 'socket.io-client'
 import { useSound } from '~/composables/useSound'
 import { Buffer } from 'buffer'
 import { useToast } from '~/composables/useToast'
+import AssetDownloadModal from '~/components/ui/AssetDownloadModal.vue'
+import { useAssetCache } from '~/composables/useAssetCache'
 
 import StoryCarousel from '~/components/story/StoryCarousel.vue'
 import WalletConnection from '~/components/wallet/WalletConnection.vue'
@@ -148,7 +149,10 @@ function fadeOutGameTrack() {
   step()
 }
 
-onMounted(() => {
+const showAssetModal = ref(true)
+const { areAllAssetsCached } = useAssetCache()
+
+onMounted(async () => {
   // Only play music after user interaction (browser autoplay policy)
   const startMusic = () => {
     fadeInGameTrack()
@@ -179,6 +183,13 @@ onMounted(() => {
       showError(err?.error || 'Battle resolution failed')
       console.error('[BATTLE_RESOLUTION_ERROR]', err)
     })
+  }
+
+  // Asset cache check
+  if (await areAllAssetsCached()) {
+    showAssetModal.value = false
+  } else {
+    showAssetModal.value = true
   }
 })
 
