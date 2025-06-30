@@ -4,9 +4,19 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ['@nuxt/icon', '@nuxt/image', '@nuxt/ui', '@nuxt/fonts'],
   
-  // Build configuration for Three.js
+  // Build configuration for Three.js and Solana/Web3
   build: {
-    transpile: ['three', 'vue-three']
+    transpile: [
+      'three',
+      'vue-three',
+      '@solana/web3.js',
+      '@solana/wallet-adapter-base',
+      '@solana/wallet-adapter-vue',
+      '@solana/wallet-adapter-vue-ui',
+      '@solana/wallet-adapter-wallets',
+      'borsh',
+      'jayson'
+    ]
   },
   
   // Runtime config for environment variables
@@ -21,7 +31,7 @@ export default defineNuxtConfig({
       
       // Program IDs
       developmentProgramId: process.env.DEVELOPMENT_PROGRAM_ID || '5RV8MAYjHoSb16VkqjqN5KGX139MULDR6GHuYhxettKT',
-      productionProgramId: process.env.PRODUCTION_PROGRAM_ID || '', // Empty for now
+      productionProgramId: process.env.PRODUCTION_PROGRAM_ID || 'GAB3CVmCbarpepefKNFEGEUGw6RzcMx9LSGER2Hg3FU2',
       
       // Server Authority
       serverAuthPublicKey: process.env.SERVER_AUTH_PUBLIC_KEY || '2RNksAgJAjwb5iXqoh6sNZW7Fjabqg7WeE64KywEyC2C',
@@ -59,7 +69,16 @@ export default defineNuxtConfig({
       'global': {},
     },
     optimizeDeps: {
-      include: ['buffer'],
+      include: [
+        'buffer',
+        '@solana/web3.js',
+        '@solana/wallet-adapter-base',
+        '@solana/wallet-adapter-vue',
+        '@solana/wallet-adapter-vue-ui',
+        '@solana/wallet-adapter-wallets',
+        'borsh',
+        'jayson'
+      ],
     },
     resolve: {
       alias: {
@@ -67,4 +86,18 @@ export default defineNuxtConfig({
       },
     },
   },
+
+  nitro: {
+    rollupConfig: {
+      external: [
+        '@solana/web3.js',
+        '@solana/wallet-adapter-base',
+        '@solana/wallet-adapter-vue',
+        '@solana/wallet-adapter-vue-ui',
+        '@solana/wallet-adapter-wallets',
+        'borsh',
+        'jayson'
+      ]
+    }
+  }
 })
