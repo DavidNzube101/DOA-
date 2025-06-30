@@ -54,8 +54,6 @@ import { io, Socket } from 'socket.io-client'
 import { useSound } from '~/composables/useSound'
 import { Buffer } from 'buffer'
 import { useToast } from '~/composables/useToast'
-import AssetDownloadModal from '~/components/ui/AssetDownloadModal.vue'
-import { useAssetCache } from '~/composables/useAssetCache'
 
 import StoryCarousel from '~/components/story/StoryCarousel.vue'
 import WalletConnection from '~/components/wallet/WalletConnection.vue'
