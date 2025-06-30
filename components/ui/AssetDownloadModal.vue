@@ -12,8 +12,11 @@
       <p>{{ formattedDownloadedSize }} / {{ formattedTotalSize }}</p>
       <p v-if="progress < 100">Downloading assets... ({{ Math.round(progress) }}%)</p>
       <p v-else>All assets downloaded! You can now play instantly next time.</p>
-      <button v-if="progress < 100" disabled>Downloading...</button>
-      <button v-else @click="$emit('close')">Continue</button>
+      <div class="button-row">
+        <button v-if="progress < 100" disabled>Downloading...</button>
+        <button v-else @click="$emit('close')">Continue</button>
+        <button class="skip-btn" @click="$emit('close')">Skip</button>
+      </div>
     </div>
   </div>
 </template>
@@ -94,5 +97,25 @@ button[disabled] {
   background: #888;
   color: #ccc;
   cursor: not-allowed;
+}
+.button-row {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.skip-btn {
+  background: #b400ff;
+  color: #fff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.7rem 2rem;
+  font-weight: bold;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.skip-btn:hover {
+  background: #7f00ff;
 }
 </style> 
