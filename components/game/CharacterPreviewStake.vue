@@ -19,7 +19,10 @@
         <h2 class="section-title">Prepare for Battle</h2>
         <div class="wallet-balance">
           <span>Wallet Balance:</span>
-          <span class="balance">{{ walletBalance }} SOL</span>
+          <span class="balance">{{ walletBalanceDisplay }} SOL</span>
+          <button class="reload-balance-btn" @click="reloadBalance" :disabled="reloadingBalance" title="Reload Balance">
+            <Icon name="heroicons:arrow-path" class="w-5 h-5" :class="{ spinning: reloadingBalance }" />
+          </button>
         </div>
         
         <!-- Stake Input -->
@@ -88,6 +91,8 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { useSound } from '~/composables/useSound'
 import { useStakeValidation } from '~/composables/useStakeValidation'
+import { Connection, PublicKey } from '@solana/web3.js'
+import { useEnvironment } from '~/composables/useEnvironment'
 
 const props = defineProps<{
   character: any
@@ -315,6 +320,29 @@ onMounted(async () => {
     animate()
   }
 })
+
+const walletBalanceDisplay = ref(props.walletBalance)
+const reloadingBalance = ref(false)
+const { rpcUrl, wsRpcUrl, isProduction } = useEnvironment()
+
+const reloadBalance = async () => {
+  if (!props.character || !props.character.publicKey) return
+  reloadingBalance.value = true
+  try {
+    const connection = new Connection(rpcUrl.value)
+    const balance = await connection.getBalance(new PublicKey(props.character.publicKey))
+    walletBalanceDisplay.value = balance / 1e9
+  } catch (err) {
+    console.error('Failed to reload wallet balance:', err)
+  } finally {
+    reloadingBalance.value = false
+  }
+}
+
+// Watch for prop changes to keep in sync
+watch(() => props.walletBalance, (newVal) => {
+  walletBalanceDisplay.value = newVal
+})
 </script>
 
 <style scoped>
@@ -505,5 +533,25 @@ onMounted(async () => {
 .suggestion-desc {
   font-size: 0.875rem;
   color: var(--text-secondary);
+}
+.reload-balance-btn {
+  background: none;
+  border: none;
+  margin-left: 0.5rem;
+  cursor: pointer;
+  color: var(--primary-color);
+  vertical-align: middle;
+  padding: 0;
+}
+.reload-balance-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.spinning {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style> 

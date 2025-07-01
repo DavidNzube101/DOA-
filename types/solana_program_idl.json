@@ -209,5 +209,8 @@
             "name": "UnauthorizedServer",
             "msg": "Only the authorized server can perform this action."
         }
-    ]
+    ],
+    "metadata": {
+        "address": "5RV8MAYjHoSb16VkqjqN5KGX139MULDR6GHuYhxettKT"
+    }
 }

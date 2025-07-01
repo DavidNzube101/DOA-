@@ -54,6 +54,7 @@ import { io, Socket } from 'socket.io-client'
 import { useSound } from '~/composables/useSound'
 import { Buffer } from 'buffer'
 import { useToast } from '~/composables/useToast'
+import { useRuntimeConfig } from '#imports'
 
 import StoryCarousel from '~/components/story/StoryCarousel.vue'
 import WalletConnection from '~/components/wallet/WalletConnection.vue'
@@ -67,6 +68,7 @@ import ToastContainer from '~/components/ui/ToastContainer.vue'
 // Composables
 const { isStoryVisible, skipStory } = useStory()
 const { success: showSuccess, error: showError, info: showInfo } = useToast()
+const config = useRuntimeConfig()
 
 // Game state
 const walletConnected = ref(false)
@@ -202,7 +204,7 @@ const onCharacterSelected = (character: Character) => {
   inLobby.value = true
   // Ensure socket is created when entering the lobby
   if (!socket.value) {
-    socket.value = io('ws://localhost:4000')
+    socket.value = io(config.public.MATCHMAKING_SERVER_URL)
   }
 }
 

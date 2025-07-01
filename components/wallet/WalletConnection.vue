@@ -22,7 +22,8 @@
                 :disabled="connectingWallet !== null"
               >
                 <div class="wallet-icon">
-                  <Icon :name="wallet.icon" class="w-8 h-8" />
+                  <!-- <Icon :name="wallet.icon" class="w-8 h-8" /> -->
+                  <img :src="wallet.image_url" alt="Wallet Icon" class="w-8 h-8" />
                 </div>
                 <div class="wallet-info">
                   <h3 class="wallet-name">{{ wallet.name }}</h3>
@@ -82,6 +83,7 @@ const availableWallets = [
     name: 'Backpack',
     description: 'The most secure Solana wallet',
     icon: 'simple-icons:backpack',
+    image_url: "/Backpack.png",
     recommended: true,
     adapter: 'backpack'
   },
@@ -89,6 +91,7 @@ const availableWallets = [
     name: 'Solflare',
     description: 'Fast and user-friendly',
     icon: 'simple-icons:solflare',
+    image_url: "/Solflare.png",
     recommended: false,
     adapter: 'solflare'
   },
@@ -96,6 +99,7 @@ const availableWallets = [
     name: 'Phantom',
     description: 'Popular and reliable',
     icon: 'simple-icons:phantom',
+    image_url: "/Phantom.png",
     recommended: false,
     adapter: 'phantom'
   }
@@ -222,7 +226,7 @@ const connectWallet = async (walletName: string) => {
 
 const getWalletBalance = async (publicKey: string): Promise<number> => {
   try {
-    const { rpcUrl } = useEnvironment()
+    const { rpcUrl, wsRpcUrl, isProduction } = useEnvironment()
     const connection = new Connection(rpcUrl.value)
     const balance = await connection.getBalance(new PublicKey(publicKey))
     return balance / 1e9 // Convert lamports to SOL

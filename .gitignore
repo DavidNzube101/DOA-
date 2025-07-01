@@ -33,6 +33,7 @@ logs
 CONTRACT_INTEGRATION_TODO.txt
 claude_changes.txt
 /Combined
+/cors-proxy 
 
 # Test ledger
 /test-ledger

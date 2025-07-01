@@ -27,7 +27,10 @@
           </div>
           <div class="player-balance">
             <span class="balance-label">Balance:</span>
-            <span class="balance-amount">{{ props.walletBalance }} GOR</span>
+            <span class="balance-amount">{{ walletBalanceDisplay }} GOR</span>
+            <button class="reload-balance-btn" @click="reloadBalance" :disabled="reloadingBalance" title="Reload Balance">
+              <Icon name="heroicons:arrow-path" class="w-5 h-5" :class="{ spinning: reloadingBalance }" />
+            </button>
           </div>
         </div>
       </div>
@@ -117,10 +120,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted, watch } from 'vue'
 import { useSound } from '~/composables/useSound'
 import { useBattleCreation } from '~/composables/useBattleCreation'
 import { useEnvironment } from '~/composables/useEnvironment'
+import { Connection, PublicKey } from '@solana/web3.js'
 
 // Props
 const props = defineProps<{
@@ -145,7 +149,7 @@ const {
 } = useBattleCreation()
 
 // Environment
-const { networkName } = useEnvironment()
+const { networkName, rpcUrl, wsRpcUrl, isProduction } = useEnvironment()
 
 // State
 const stakeAmount = ref('0.01') // Default to recommended stake
@@ -156,6 +160,10 @@ const matchTimeoutPopup = ref(false)
 const matchmakingTimer = ref(40)
 let matchmakingInterval: NodeJS.Timeout | null = null
 let imgError = ref(false)
+
+// New state for reloading balance
+const walletBalanceDisplay = ref(props.walletBalance)
+const reloadingBalance = ref(false)
 
 // Computed
 const truncatedWallet = computed(() => {
@@ -262,6 +270,7 @@ const enterBattle = async () => {
     }
     
     // Create battle on blockchain
+    const connection = new Connection(rpcUrl.value)
     const result = await createBattle(stakeInLamports, props.wallet)
     
     if (result.success) {
@@ -287,6 +296,25 @@ const closeTimeoutPopup = () => {
   playClickSound()
   matchTimeoutPopup.value = false
 }
+
+const reloadBalance = async () => {
+  if (!props.walletAddress) return
+  reloadingBalance.value = true
+  try {
+    const connection = new Connection(rpcUrl.value)
+    const balance = await connection.getBalance(new PublicKey(props.walletAddress))
+    walletBalanceDisplay.value = balance / 1e9
+  } catch (err) {
+    console.error('Failed to reload wallet balance:', err)
+  } finally {
+    reloadingBalance.value = false
+  }
+}
+
+// Watch for prop changes to keep in sync
+watch(() => props.walletBalance, (newVal) => {
+  walletBalanceDisplay.value = newVal
+})
 
 onUnmounted(() => {
   clearMatchmakingInterval()
@@ -406,6 +434,30 @@ const emit = defineEmits<{
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--success-color);
+}
+
+.reload-balance-btn {
+  background: none;
+  border: none;
+  margin-left: 0.5rem;
+  cursor: pointer;
+  color: var(--primary-color);
+  vertical-align: middle;
+  padding: 0;
+}
+
+.reload-balance-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .stake-section {

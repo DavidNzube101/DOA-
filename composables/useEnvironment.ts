@@ -16,12 +16,31 @@ export function useEnvironment() {
     }
   })
   
+  // WebSocket RPC URL selection based on environment
+  const wsRpcUrl = computed(() => {
+    if (isDevelopment.value) {
+      // Devnet: use HTTP for both, or set up a devnet WS endpoint if needed
+      return config.public.solanaDevnetRpcUrl.replace('https://', 'wss://').replace('http://', 'ws://')
+    } else {
+      return config.public.gorbaganaWsRpcUrl
+    }
+  })
+  
   // Program ID selection based on environment
   const programId = computed(() => {
     if (isDevelopment.value) {
       return config.public.developmentProgramId
     } else {
       return config.public.productionProgramId
+    }
+  })
+  
+  // IDL selection based on environment
+  const idlPath = computed(() => {
+    if (isDevelopment.value) {
+      return config.public.solanaProgramIdl
+    } else {
+      return config.public.gorbaganaProgramIdl
     }
   })
   
@@ -61,7 +80,9 @@ export function useEnvironment() {
     
     // Configuration
     rpcUrl,
+    wsRpcUrl,
     programId,
+    idlPath,
     serverAuthPublicKey,
     serverAuthKeypair,
     networkName,
@@ -73,7 +94,9 @@ export function useEnvironment() {
     debugInfo: computed(() => ({
       environment: config.public.environment,
       rpcUrl: rpcUrl.value,
+      wsRpcUrl: wsRpcUrl.value,
       programId: programId.value,
+      idlPath: idlPath.value,
       networkName: networkName.value,
       serverAuthPublicKey: serverAuthPublicKey.value
     }))

@@ -3,8 +3,26 @@ import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstructi
 import { useEnvironment } from './useEnvironment'
 import { useStakeValidation } from './useStakeValidation'
 import { useToast } from './useToast'
-import idl from '~/types/idl.json'
 import { sha256 } from '@noble/hashes/sha256'
+
+// Dynamic IDL loading based on environment
+let idl: any = null
+const loadIdl = async () => {
+  if (idl) return idl
+  const { idlPath } = useEnvironment()
+  try {
+    // Dynamic import based on environment
+    if (idlPath.value.includes('solana')) {
+      idl = await import('~/types/solana_program_idl.json')
+    } else {
+      idl = await import('~/types/gorbagana_program_idl.json')
+    }
+    return idl.default || idl
+  } catch (error) {
+    console.error('Failed to load IDL:', error)
+    throw new Error('Failed to load program IDL')
+  }
+}
 
 // Assignable base class for borsh schema classes (Solana Cookbook pattern)
 class Assignable {
@@ -34,7 +52,7 @@ function getInstructionDiscriminator(name: string): Buffer {
 }
 
 export function useBattleCreation() {
-  const { rpcUrl, programId, networkName } = useEnvironment()
+  const { rpcUrl, wsRpcUrl, programId, networkName } = useEnvironment()
   const { validateStakeAmount } = useStakeValidation()
   const { success, error: showError, info } = useToast()
 
@@ -145,7 +163,7 @@ export function useBattleCreation() {
 
       console.log('[useBattleCreation] Starting battle creation transaction...')
 
-      // Connection
+      // Always use the CORS proxy (HTTPS) for battle creation
       const connection = new Connection(rpcUrl.value, 'confirmed')
 
       // Create a new battle account keypair

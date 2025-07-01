@@ -1,4 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import { cjsInterop } from 'vite-plugin-cjs-interop'
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-05-15',
   devtools: { enabled: true },
@@ -27,11 +29,16 @@ export default defineNuxtConfig({
       
       // RPC Configuration
       solanaDevnetRpcUrl: process.env.SOLANA_DEVNET_RPC_URL || 'https://api.devnet.solana.com',
-      gorbaganaRpcUrl: process.env.GORBAGANA_RPC_URL || 'https://rpc.gorbagana.wtf',
+      gorbaganaRpcUrl: process.env.GORBAGANA_RPC_URL || 'https://gorbagana-rpc-cors-proxy.skippstack.workers.dev/',
+      gorbaganaWsRpcUrl: process.env.GORBAGANA_WS_RPC_URL || 'wss://rpc.gorbagana.wtf',
       
       // Program IDs
       developmentProgramId: process.env.DEVELOPMENT_PROGRAM_ID || '5RV8MAYjHoSb16VkqjqN5KGX139MULDR6GHuYhxettKT',
       productionProgramId: process.env.PRODUCTION_PROGRAM_ID || 'GAB3CVmCbarpepefKNFEGEUGw6RzcMx9LSGER2Hg3FU2',
+      
+      // IDL Configuration
+      solanaProgramIdl: process.env.SOLANA_PROGRAM_IDL || '~/types/solana_program_idl.json',
+      gorbaganaProgramIdl: process.env.GORBAGANA_PROGRAM_IDL || '~/types/gorbagana_program_idl.json',
       
       // Server Authority
       serverAuthPublicKey: process.env.SERVER_AUTH_PUBLIC_KEY || '2RNksAgJAjwb5iXqoh6sNZW7Fjabqg7WeE64KywEyC2C',
@@ -45,7 +52,10 @@ export default defineNuxtConfig({
         storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
         messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
         appId: process.env.FIREBASE_APP_ID
-      }
+      },
+      
+      // Matchmaking Server URL
+      MATCHMAKING_SERVER_URL: process.env.NUXT_PUBLIC_MATCHMAKING_SERVER_URL || 'wss://doa-server.onrender.com',
     }
   },
   
@@ -85,6 +95,14 @@ export default defineNuxtConfig({
         buffer: 'buffer',
       },
     },
+    plugins: [
+      cjsInterop({
+        dependencies: [
+          'eventemitter3',
+          'eventemitter3/**'
+        ]
+      })
+    ],
   },
 
   nitro: {

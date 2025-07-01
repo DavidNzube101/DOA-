@@ -7,12 +7,20 @@ const { Connection, PublicKey, Transaction, TransactionInstruction, Keypair, Sys
 const { sha256 } = require('@noble/hashes/sha256');
 const borsh = require('borsh');
 const fs = require('fs');
-const idl = JSON.parse(fs.readFileSync(__dirname + '/idl.json', 'utf8'));
+const path = require('path');
 const bs58 = require('bs58');
 
 const server = http.createServer()
+
+// Read allowed origins from environment variable (comma-separated)
+const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000']
+
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: {
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
 })
 
 const queue = []
@@ -23,11 +31,26 @@ const battleDeadlines = new Map() // Track battle deadlines for auto-resolution
 const processedBattles = new Set();
 
 // Load server authority keypair from config string (copy from nuxt.config.ts or use process.env)
-const serverAuthKeypairArray = JSON.parse(process.env.SERVER_AUTH_KEYPAIR || '[61,249,35,240,89,226,101,89,86,154,227,218,12,139,225,91,224,228,129,221,232,53,12,234,211,193,187,46,255,95,209,195,21,26,57,236,80,176,186,109,41,150,71,84,88,251,65,155,36,143,69,45,25,228,161,8,90,137,6,170,58,22,111,33]');
+const serverAuthKeypairArray = JSON.parse(process.env.SERVER_AUTH_KEYPAIR || '');
 const serverAuthority = Keypair.fromSecretKey(Uint8Array.from(serverAuthKeypairArray));
 
 // At the top of the file, add:
 const socketWallets = new Map();
+
+// Dynamic IDL loading based on environment
+const isProduction = process.env.NODE_ENV === 'production'
+const idlPath = isProduction
+  ? path.join(__dirname, 'gorbagana_program_idl.json')
+  : path.join(__dirname, 'solana_program_idl.json')
+
+let idl
+try {
+  idl = JSON.parse(fs.readFileSync(idlPath, 'utf8'))
+  console.log(`[SERVER] Loaded IDL from ${idlPath}`)
+} catch (err) {
+  console.error(`[SERVER] Failed to load IDL from ${idlPath}:`, err)
+  process.exit(1)
+}
 
 // Helper: Calculate Anchor discriminator
 function getInstructionDiscriminator(name) {
@@ -133,6 +156,19 @@ function decodeBattleAccountBorsh(data) {
 function decodeBattleAccount(data) {
   return decodeBattleAccountManual(data);
 }
+
+// Dynamic environment selection
+const PROGRAM_ID = isProduction
+  ? process.env.PRODUCTION_PROGRAM_ID
+  : process.env.DEVELOPMENT_PROGRAM_ID;
+
+const RPC_URL = isProduction
+  ? process.env.GORBAGANA_RPC_URL
+  : process.env.SOLANA_DEVNET_RPC_URL;
+
+console.log('[SERVER] NODE_ENV:', process.env.NODE_ENV);
+console.log('[SERVER] Using PROGRAM_ID:', PROGRAM_ID);
+console.log('[SERVER] Using RPC_URL:', RPC_URL);
 
 // Server-side join_battle contract call
 async function joinBattleOnChain({ battle, playerTwoBattle, playerOne, playerTwo, programId, rpcUrl }) {
@@ -277,14 +313,14 @@ io.on('connection', (socket) => {
         playerTwoBattle: p2.battleAccountPubkey,
         playerOne: p1.walletPubkey,
         playerTwo: p2.walletPubkey,
-        programId: process.env.DEVELOPMENT_PROGRAM_ID,
-        rpcUrl: process.env.SOLANA_DEVNET_RPC_URL
+        programId: PROGRAM_ID,
+        rpcUrl: RPC_URL
       })
       .then(async sig => {
         console.log('[SERVER] join_battle tx:', sig);
         try {
           // Fetch and decode battle account
-          const connection = new Connection(process.env.SOLANA_DEVNET_RPC_URL, 'confirmed');
+          const connection = new Connection(RPC_URL, 'confirmed');
           const battleAccountInfo = await connection.getAccountInfo(new PublicKey(p1.battleAccountPubkey));
           if (!battleAccountInfo) throw new Error('Battle account not found on-chain');
           const battleState = decodeBattleAccount(battleAccountInfo.data);
@@ -396,8 +432,8 @@ io.on('connection', (socket) => {
         resolveBattleOnChain({
           battle: battleAccount,
           winnerPlayerPubkey: winnerWallet,
-          programId: process.env.DEVELOPMENT_PROGRAM_ID,
-          rpcUrl: process.env.SOLANA_DEVNET_RPC_URL
+          programId: PROGRAM_ID,
+          rpcUrl: RPC_URL
         })
         .then(txid => {
           console.log('[SERVER] tie resolve_battle tx:', txid);
@@ -461,8 +497,8 @@ io.on('connection', (socket) => {
       resolveBattleOnChain({
         battle: battleAccount,
         winnerPlayerPubkey: winnerWallet,
-        programId: process.env.DEVELOPMENT_PROGRAM_ID,
-        rpcUrl: process.env.SOLANA_DEVNET_RPC_URL
+        programId: PROGRAM_ID,
+        rpcUrl: RPC_URL
       })
       .then(txid => {
         console.log('[SERVER] game_end resolve_battle tx:', txid);
@@ -506,7 +542,7 @@ io.on('connection', (socket) => {
       console.error('[SERVER] Missing battle info for game_end resolve_battle');
       // Fallback: try to fetch the battle account and determine the winner
       if (battleAccount) {
-        const connection = new Connection(process.env.SOLANA_DEVNET_RPC_URL, 'confirmed');
+        const connection = new Connection(RPC_URL, 'confirmed');
         connection.getAccountInfo(new PublicKey(battleAccount)).then(battleAccountInfo => {
           if (battleAccountInfo) {
             const battleState = decodeBattleAccount(battleAccountInfo.data);
@@ -604,8 +640,8 @@ io.on('connection', (socket) => {
         forfeitBattleOnChain({
           battle: battleAccount,
           winnerPlayerPubkey: winnerWallet,
-          programId: process.env.DEVELOPMENT_PROGRAM_ID,
-          rpcUrl: process.env.SOLANA_DEVNET_RPC_URL
+          programId: PROGRAM_ID,
+          rpcUrl: RPC_URL
         })
         .then(txid => {
           console.log('[SERVER] forfeit_battle tx:', txid);
@@ -681,8 +717,8 @@ io.on('connection', (socket) => {
         forfeitBattleOnChain({
           battle: battleAccount,
           winnerPlayerPubkey: winnerWallet,
-          programId: process.env.DEVELOPMENT_PROGRAM_ID,
-          rpcUrl: process.env.SOLANA_DEVNET_RPC_URL
+          programId: PROGRAM_ID,
+          rpcUrl: RPC_URL
         })
         .then(txid => {
           console.log('[SERVER] disconnect forfeit_battle tx:', txid);
@@ -769,8 +805,8 @@ setInterval(() => {
       resolveBattleOnChain({
         battle: battleAccount,
         winnerPlayerPubkey: winnerPlayerPubkey,
-        programId: process.env.DEVELOPMENT_PROGRAM_ID,
-        rpcUrl: process.env.SOLANA_DEVNET_RPC_URL
+        programId: PROGRAM_ID,
+        rpcUrl: RPC_URL
       })
       .then(txid => {
         console.log('[SERVER] Auto-resolve battle tx:', txid);
@@ -811,7 +847,9 @@ setInterval(() => {
   }
 }, 30000); // Check every 30 seconds
 
-const PORT = process.env.PORT || 4000
+const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`[SERVER] Matchmaking server running on port ${PORT}`)
-}) 
+  console.log(`[SERVER] Matchmaking server running on port ${PORT}`);
+  console.log('[SERVER] Using PROGRAM_ID:', PROGRAM_ID)
+  console.log('[SERVER] Using RPC_URL:', RPC_URL)
+}); 
